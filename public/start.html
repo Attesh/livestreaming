@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Group Video Call</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="/css/materialize.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/3.0.5/socket.io.js" integrity="sha512-2rUSTSAeOO02jF6eBqENNqPs1EohenJ5j+1dgDPdXSLz9nOlrr8DJk4zW/lDy8rjhGCSonW3Gx812XJQIKZKJQ==" crossorigin="anonymous"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0=" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="/css/style2.css">
+</head>
+<body>
+    <div class="main-wrap">
+        <div class="call-wrap card" style="z-index: 99">
+            <a id='meetingid' href="#" style="color: black;"></a>
+            <div class="remote-video-wrap" id="remote-video" style="margin-bottom:0;background-color:rgb(131 131 131); display: flex;flex-wrap: wrap;">
+                <div>
+                    <div id="localUser" class="userbox remote-user div-center" style="flex-direction: column; height:100%;">
+                        <h5 class="div-center">HOST</h5>
+                        <div class="div-center">
+                            <video autoplay id="localStream"></video>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="/js/materialize.min.js"></script>
+ 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.1.3/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        $(document).ready(function() {
+
+            var iceServers = {
+                iceServers: [
+                    { urls: "stun:stun.services.mozilla.com" },
+                    { urls: "stun:stun1.1.google.com:19302" },
+                    { urls: "stun:stun2.1.google.com:19302" },
+                    { urls: "stun:stun3.1.google.com:19302" },
+                    { urls: "stun:stun4.1.google.com:19302" },
+                    { urls: "stun:stun5.1.google.com:19302" },
+                ]
+            };
+            
+            var socketurl = '/';
+            var username = 'Helloworld';
+            var meeting_id =  window.location.pathname.split('/')[2];
+            var localConnectionID;
+            var localUserVideo;
+            var users_connectionID = {};
+            var users_connection = {};
+
+            var remoteStream = {};
+            var audioStream = {};
+
+            var audioTrack;
+            var mediaTrack;
+
+            var rtpAudioSenders = {};
+            var rtpVideoSenders = {};
+
+            var sdpFunction;
+
+
+            let isAdmin = false;
+
+            sdpFunction = (data, to_connid) => {
+                // console.log(data, 'sdpfunction');
+                socket.emit('sdpProcess', {
+                    message: data,
+                    to_connid: to_connid
+                });
+            }
+
+            var socket = io(socketurl);
+
+            socket.on('connect', () => {
+                if (socket.connected) {
+                    socket.emit('users_info_to_signal_server', {
+                        current_user_name: username,
+                        meeting_id: meeting_id
+                    });
+                }
+                localConnectionID = socket.id;
+                localUserVideo = document.getElementById('localStream');
+                
+                
+
+              
+                
+            });
+
+            socket.on('newconnectioninform', function(other_users) {
+              if (!other_users.length) {
+                  isAdmin = true;
+                  // var uniqueCookieName = "uniqueCookie_" + roomId; 
+                  // document.cookie = uniqueCookieName  + "=" + streamstartid;
+              }
+             
+              // var lastIndex = 1; // Index of the last element in the array
+              console.log('other_users.length', other_users.length);
+              $('#remote-video .other').remove();
+              if (other_users.length > 0) {
+                    addUsers(other_users[0].user_id, other_users[0].connectionId);
+                    createConnection(other_users[0].connectionId);
+                }
+   
+                processMedia();
+              // Apply the action only for the last user in the array
+              // if (lastIndex >= 0) {
+              //     addUsers(other_users[lastIndex].user_id, other_users[lastIndex].connectionId);
+              //     createConnection(other_users[lastIndex].connectionId);
+              // }
+            })
+
+            // socket.on('other_users_to_inform', function(data) {
+            //     addUsers(data.other_user_id, data.connId);
+            //     createConnection(data.connId);
+            // })
+
+            function addUsers(other_username, connId) {
+
+                console.log(other_username);
+                $('#remote-video').append(`
+                    <div id="${connId}" class="remote-user other div-center-column">
+                        <h5 class="div-center">${other_username}</h5>
+                        <div class="div-center">
+                            <video autoplay id="video_${connId}"></video>
+                            <audio autoplay id="audio_${connId}"></audio>
+                        </div>
+                    </div>
+                `)
+                
+            }
+
+            async function createConnection(connId) {
+                var peerconnection = new RTCPeerConnection(iceServers);
+                peerconnection.onicecandidate = function(event) {
+                    if (event.candidate) {
+                        sdpFunction(JSON.stringify({
+                            'iceCandidate': event.candidate
+                        }), connId);
+                    }
+                }
+
+                peerconnection.onnegotiationneeded = async function(event) {
+                    await createOffer(connId);
+                }
+
+                peerconnection.ontrack = function(event) {
+                    if (!remoteStream[connId]) {
+                        // alert('not set');
+                        remoteStream[connId] = new MediaStream();
+                    }
+                    if (!audioStream[connId]) {
+                        // alert('not a set');
+
+                        audioStream[connId] = new MediaStream();
+                    }
+                    if (event.track.kind == 'video') {
+                        // alert('kind is video');
+                        console.log( remoteStream[connId],'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
+                        remoteStream[connId].getTracks().forEach(t => remoteStream[connId].removeTrack(t));
+                        remoteStream[connId].addTrack(event.track);
+                        var remoteVideoDiv = document.getElementById('video_' + connId);
+                        console.log(remoteVideoDiv,'remoteVideoDiv');
+                        remoteVideoDiv.srcObject = remoteStream[connId];
+                        remoteVideoDiv.load();
+                    } else if (event.track.kind == 'audio') {
+                        // alert('kind is audio');
+
+                        audioStream[connId].getTracks().forEach(t => audioStream[connId].removeTrack(t));
+                        audioStream[connId].addTrack(event.track);
+                        var remoteAudioDiv = document.getElementById('audio_' + connId);
+                        remoteAudioDiv.srcObject = audioStream[connId];
+                        remoteAudioDiv.load();
+                    }
+                }
+
+                users_connectionID[connId] = connId;
+                users_connection[connId] = peerconnection;
+                // alert(mediaTrack,'before calling in create connection');
+                updateMediaSenders(mediaTrack, rtpVideoSenders);
+            }
+
+            async function createOffer(connid) {
+                var peerconn = users_connection[connid];
+                var offer = await peerconn.createOffer();
+                await peerconn.setLocalDescription(offer);
+
+                sdpFunction(JSON.stringify({
+                    'offer': peerconn.localDescription
+                }), connid);
+            }
+
+            socket.on('sdpProcess', async function(data) {
+                await sdpProcess(data.message, data.from_connid);
+            })
+
+            async function processMedia() {
+    try {
+        if (isAdmin) { // Check if the user is an admin
+            var vStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    width: 720,
+                    height: 480
+                },
+                audio: true // Allow audio for admins
+            });
+            
+            audioTrack = vStream.getAudioTracks()[0];
+            updateMediaSenders(audioTrack, rtpAudioSenders);
+        } else {
+            // If the user is not an admin, create an empty media stream for both audio and video
+            var emptyStream = new MediaStream();
+
+            // Log message indicating that camera and audio are disabled for non-admin users
+            console.log("User is not an admin. Camera and audio disabled.");
+        }
+
+        // Only admins get video stream
+        if (isAdmin) {
+            mediaTrack = vStream.getVideoTracks()[0];
+            localUserVideo.srcObject = new MediaStream([mediaTrack]);
+            updateMediaSenders(mediaTrack, rtpVideoSenders);
+        }
+    } catch (err) {
+        console.log(err);
+    }
+}
+
+
+            function updateMediaSenders(track, rtpSenders) {
+            
+                console.log('hi i am in updatemedia stream')
+                for (var con_id in users_connection) {
+                    var connection = users_connection[con_id];
+                    console.log(connection,'connection')
+                    if (connection && (connection.connectionState == "new" ||
+                            connection.connectionState == "connecting" ||
+                            connection.connectionState == "connected")) {
+                        if (!rtpSenders[con_id]) {
+                            console.log(rtpSenders[con_id],'rtpSenders[con_id]')
+                            rtpSenders[con_id] = users_connection[con_id].addTrack(track);
+                        } else {
+                            console.log('i am in else')
+                            rtpSenders[con_id].replaceTrack(track);
+                        }
+                    }
+                }
+            }
+
+            async function sdpProcess(message, from_connid) {
+                message = JSON.parse(message);
+
+                if (message.answer) {
+                    await users_connection[from_connid].setRemoteDescription(new RTCSessionDescription(message.answer))
+                } else if (message.offer) {
+                    if (!users_connection[from_connid]) {
+                        await createConnection(from_connid);
+                    }
+                    await users_connection[from_connid].setRemoteDescription(new RTCSessionDescription(message.offer));
+                    var answer = await users_connection[from_connid].createAnswer();
+                    await users_connection[from_connid].setLocalDescription(answer);
+                    sdpFunction(JSON.stringify({
+                        'answer': answer
+                    }), from_connid);
+                } else if (message.iceCandidate) {
+                    if (!users_connection[from_connid]) {
+                        await createConnection(from_connid);
+                    }
+                    try {
+                        await users_connection[from_connid].addIceCandidate(message.iceCandidate)
+                    } catch (error) {
+                        console.log(error);
+                    }
+                }
+            }
+
+        });
+    </script>
+</body>
+</html>
