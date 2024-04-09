@@ -235,20 +235,27 @@
             function updateMediaSenders(track, rtpSenders) {
             
                 console.log('hi i am in updatemedia stream')
-                for (var con_id in users_connection) {
-                    var connection = users_connection[con_id];
-                    console.log(connection,'connection')
-                    if (connection && (connection.connectionState == "new" ||
-                            connection.connectionState == "connecting" ||
-                            connection.connectionState == "connected")) {
-                        if (!rtpSenders[con_id]) {
-                            console.log(rtpSenders[con_id],'rtpSenders[con_id]')
-                            rtpSenders[con_id] = users_connection[con_id].addTrack(track);
-                        } else {
-                            console.log('i am in else')
-                            rtpSenders[con_id].replaceTrack(track);
+                try {
+                    for (var con_id in users_connection) {
+                        var connection = users_connection[con_id];
+                        console.log(connection,'connection')
+                        if (connection && (connection.connectionState == "new" ||
+                                connection.connectionState == "connecting" ||
+                                connection.connectionState == "connected")) {
+                            if (track !== undefined) {
+                                if (!rtpSenders[con_id]) {
+                                    console.log(rtpSenders[con_id],'rtpSenders[con_id]')
+                                    rtpSenders[con_id] = users_connection[con_id].addTrack(track);
+                                } else {
+                                    console.log('i am in else')
+                                    rtpSenders[con_id].replaceTrack(track);
+                                }
+                            }
+
                         }
                     }
+                } catch (error) {
+                    console.error(error);
                 }
             }
 

@@ -3,7 +3,7 @@ const app = express();
 const http = require('http');
 const { Server } = require('socket.io');
 app.use(express.static('public'));
-const webrtc = require("wrtc");
+// const webrtc = require("wrtc");
 const bodyParser = require('body-parser');
 const server = http.createServer(app);
 const io = new Server(server);
